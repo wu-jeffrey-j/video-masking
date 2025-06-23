@@ -10,7 +10,7 @@ services:
   backend:
     image: sam2/backend
     build:
-      context: .
+      context: ./demo/backend
       dockerfile: backend.Dockerfile
     ports:
       - 7263:5000

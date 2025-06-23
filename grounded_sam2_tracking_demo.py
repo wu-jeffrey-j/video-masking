@@ -40,7 +40,7 @@ grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(model_id).
 
 # setup the input image and text prompt for SAM 2 and Grounding DINO
 # VERY important: text queries need to be lowercased + end with a dot
-text = "car."
+text = "pole."
 
 # `video_dir` a directory of JPEG frames with filenames like `<frame_index>.jpg`  
 
@@ -108,7 +108,7 @@ elif masks.ndim == 4:
 Step 3: Register each object's positive points to video predictor with seperate add_new_points call
 """
 
-PROMPT_TYPE_FOR_VIDEO = "box" # or "point"
+PROMPT_TYPE_FOR_VIDEO = "mask" # or "point"
 
 assert PROMPT_TYPE_FOR_VIDEO in ["point", "box", "mask"], "SAM 2 video predictor only support point/box/mask prompt"
 
@@ -194,5 +194,5 @@ for frame_idx, segments in video_segments.items():
 Step 6: Convert the annotated frames to video
 """
 
-output_video_path = "./children_tracking_demo_video.mp4"
+output_video_path = "./car.mp4"
 create_video_from_images(save_dir, output_video_path)

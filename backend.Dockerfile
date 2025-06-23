@@ -1,64 +1,37 @@
-ARG BASE_IMAGE=pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime
-ARG MODEL_SIZE=base_plus
+FROM pytorch/pytorch:2.7.1-cuda12.8-cudnn8-devel
 
-FROM ${BASE_IMAGE}
+# Arguments to build Docker Image using CUDA
+ARG USE_CUDA=0
+ARG TORCH_ARCH="7.0;7.5;8.0;8.6"
 
-# Gunicorn environment variables
-ENV GUNICORN_WORKERS=1
-ENV GUNICORN_THREADS=2
-ENV GUNICORN_PORT=5000
+ENV AM_I_DOCKER=True
+ENV BUILD_WITH_CUDA="${USE_CUDA}"
+ENV TORCH_CUDA_ARCH_LIST="${TORCH_ARCH}"
+ENV CUDA_HOME=/usr/local/cuda-12.8/
+# Ensure CUDA is correctly set up
+ENV PATH=/usr/local/cuda-12.8/bin:${PATH}
+ENV LD_LIBRARY_PATH=/usr/local/cuda-12.8/lib64:${LD_LIBRARY_PATH}
 
-# SAM 2 environment variables
-ENV APP_ROOT=/opt/sam2
-ENV PYTHONUNBUFFERED=1
-ENV SAM2_BUILD_CUDA=0
-ENV MODEL_SIZE=${MODEL_SIZE}
+# Install required packages and specific gcc/g++
+RUN apt-get update && apt-get install --no-install-recommends wget ffmpeg=7:* \
+    libsm6=2:* libxext6=2:* git=1:* nano vim=2:* ninja-build gcc-14 g++-14 -y \
+    && apt-get clean && apt-get autoremove && rm -rf /var/lib/apt/lists/*
 
-# Install system requirements
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
-    libavutil-dev \
-    libavcodec-dev \
-    libavformat-dev \
-    libswscale-dev \
-    pkg-config \
-    build-essential \
-    libffi-dev
+ENV CC=gcc-14
+ENV CXX=g++-14
 
-COPY setup.py .
-COPY README.md .
+RUN mkdir -p /home/appuser/video-masking
+COPY . /home/appuser/video-masking
 
-RUN pip install --upgrade pip setuptools
-RUN pip install -e ".[interactive-demo]"
+WORKDIR /home/appuser/video-masking
 
-# https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite/issues/69#issuecomment-1826764707
-RUN rm /opt/conda/bin/ffmpeg && ln -s /bin/ffmpeg /opt/conda/bin/ffmpeg
+# Install essential Python packages
+RUN python -m pip install --upgrade pip "setuptools>=62.3.0,<75.9" wheel numpy \
+    opencv-python transformers supervision pycocotools addict yapf timm fastapi \
+    
 
-# Make app directory. This directory will host all files required for the
-# backend and SAM 2 inference files.
-RUN mkdir ${APP_ROOT}
+# Install segment_anything package in editable mode
+RUN python -m pip install -e .
 
-# Copy backend server files
-COPY demo/backend/server ${APP_ROOT}/server
-
-# Copy SAM 2 inference files
-COPY sam2 ${APP_ROOT}/server/sam2
-
-# Download SAM 2.1 checkpoints
-ADD https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt ${APP_ROOT}/checkpoints/sam2.1_hiera_tiny.pt
-ADD https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_small.pt ${APP_ROOT}/checkpoints/sam2.1_hiera_small.pt
-ADD https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt ${APP_ROOT}/checkpoints/sam2.1_hiera_base_plus.pt
-ADD https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt ${APP_ROOT}/checkpoints/sam2.1_hiera_large.pt
-
-WORKDIR ${APP_ROOT}/server
-
-# https://pythonspeed.com/articles/gunicorn-in-docker/
-CMD gunicorn --worker-tmp-dir /dev/shm \
-    --worker-class gthread app:app \
-    --log-level info \
-    --access-logfile /dev/stdout \
-    --log-file /dev/stderr \
-    --workers ${GUNICORN_WORKERS} \
-    --threads ${GUNICORN_THREADS} \
-    --bind 0.0.0.0:${GUNICORN_PORT} \
-    --timeout 60
+# Install grounding dino 
+RUN python -m pip install --no-build-isolation -e grounding_dino
