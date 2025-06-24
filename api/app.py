@@ -2,10 +2,14 @@ import streamlit as st
 import requests
 import os
 
+from PIL import Image
+
+favicon = Image.open("./api/favicon.png")
+
 # --- App Configuration ---
 st.set_page_config(
     page_title="Video Masking App",
-    page_icon="🎥",
+    page_icon=favicon,
     layout="centered",
     initial_sidebar_state="auto",
 )
