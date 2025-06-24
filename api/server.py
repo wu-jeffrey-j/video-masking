@@ -63,4 +63,4 @@ async def mask_video_endpoint(file: UploadFile = File(...), prompt: str = Form()
 app.mount("/static", StaticFiles(directory=str(OUTPUT_DIR)), name="static")
 
 if __name__ == "__main__":
-    uvicorn.run("api.server:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("api.server:app", host="127.0.0.1", port=8000, reload=False)
