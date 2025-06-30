@@ -27,7 +27,7 @@ def clean_prompt(prompt: str):
 def ping():
     return {"message": "Pinged"}
 
-@app.post("/mask-video/")
+@app.post("/mask-video")
 async def mask_video_endpoint(file: UploadFile = File(...), prompt: str = Form()):
     prompt = clean_prompt(prompt)
     # 1. Save upload
@@ -63,4 +63,5 @@ async def mask_video_endpoint(file: UploadFile = File(...), prompt: str = Form()
 app.mount("/static", StaticFiles(directory=str(OUTPUT_DIR)), name="static")
 
 if __name__ == "__main__":
-    uvicorn.run("api.server:app", host="127.0.0.1", port=8000, reload=False)
+    import uvicorn
+    uvicorn.run("api.server:app", host="127.0.0.1", port=9446, reload=True, timeout_keep_alive=2160, keep_alive_timeout=2160)

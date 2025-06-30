@@ -10,7 +10,7 @@ from sam2.sam2_image_predictor import SAM2ImagePredictor
 from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection 
 from utils.track_utils import sample_points_from_masks
 from utils.video_utils import create_video_from_images
-
+from datetime import datetime
 import subprocess
 
 """
@@ -39,14 +39,12 @@ processor = AutoProcessor.from_pretrained(model_id)
 grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(model_id).to(device)
 
 def save_frames(input_video_path: str, video_dir: str):
-    if os.path.exists(video_dir):
-        shutil.rmtree(video_dir)
-    os.makedirs(video_dir)
-    
     vidcap = cv2.VideoCapture(input_video_path)
+    fps = vidcap.get(cv2.CAP_PROP_FPS)
+    max_frames = fps * 30
     success, image = vidcap.read()
     count = 1
-    while success:
+    while success and count < max_frames:
         cv2.imwrite(os.path.join(video_dir, f"{count:05d}.jpg"), image)
         success, image = vidcap.read()
         count += 1
@@ -65,7 +63,10 @@ def change_video(input: str):
     os.replace(temp_path, input)
 
 def mask_video(input_video_path: str, prompt: str, output_video_path: str):
-    video_dir = "api/input"
+    current_time = datetime.now().time()
+    video_dir = f"api/input/{current_time}"
+    os.makedirs(video_dir)
+    
     save_frames(input_video_path, video_dir)
 
     # scan all the JPEG frame names in this directory
@@ -74,10 +75,10 @@ def mask_video(input_video_path: str, prompt: str, output_video_path: str):
         if os.path.splitext(p)[-1] in [".jpg", ".jpeg", ".JPG", ".JPEG"]
     ]
     frame_names.sort(key=lambda p: int(os.path.splitext(p)[0]))
-
+    print("HERE")
     # init video predictor state
     inference_state = video_predictor.init_state(video_path=video_dir)
-
+    print("HERE")
     ann_frame_idx = 0  # the frame index we interact with
     ann_obj_id = 1  # give a unique id to each object we interact with (it can be any integers)
 
@@ -88,6 +89,8 @@ def mask_video(input_video_path: str, prompt: str, output_video_path: str):
     # prompt grounding dino to get the box coordinates on specific frame
     img_path = os.path.join(video_dir, frame_names[ann_frame_idx])
     image = Image.open(img_path)
+
+    print("HERE")
 
     # run Grounding DINO on the image
     inputs = processor(images=image, text=prompt, return_tensors="pt").to(device)
@@ -101,6 +104,8 @@ def mask_video(input_video_path: str, prompt: str, output_video_path: str):
         text_threshold=0.3,
         target_sizes=[image.size[::-1]]
     )
+
+    print("HERE)")
 
     # prompt SAM image predictor to get the mask for the object
     image_predictor.set_image(np.array(image.convert("RGB")))
@@ -120,6 +125,8 @@ def mask_video(input_video_path: str, prompt: str, output_video_path: str):
         box=input_boxes,
         multimask_output=False,
     )
+
+    print("HERE")
 
     # convert the mask shape to (n, H, W)
     if masks.ndim == 3:
@@ -174,6 +181,8 @@ def mask_video(input_video_path: str, prompt: str, output_video_path: str):
     else:
         raise NotImplementedError("SAM 2 video predictor only support point/box/mask prompts")
 
+    print("HERE")
+
     """
     Step 4: Propagate the video predictor to get the segmentation results for each frame
     """
@@ -187,9 +196,7 @@ def mask_video(input_video_path: str, prompt: str, output_video_path: str):
     """
     Step 5: Visualize the segment results across the video and save them
     """
-    save_dir = "api/tracking_results"
-    if os.path.exists(save_dir):
-        shutil.rmtree(save_dir)
+    save_dir = f"./api/tracking_results/{current_time}"
     os.makedirs(save_dir)
 
     ID_TO_OBJECTS = {i: obj for i, obj in enumerate(OBJECTS, start=1)}
@@ -205,12 +212,13 @@ def mask_video(input_video_path: str, prompt: str, output_video_path: str):
             mask=masks, # (n, h, w)
             class_id=np.array(object_ids, dtype=np.int32),
         )
-        box_annotator = sv.BoxAnnotator()
-        annotated_frame = box_annotator.annotate(scene=img.copy(), detections=detections)
-        label_annotator = sv.LabelAnnotator()
-        annotated_frame = label_annotator.annotate(annotated_frame, detections=detections, labels=[ID_TO_OBJECTS[i] for i in object_ids])
-        mask_annotator = sv.MaskAnnotator()
-        annotated_frame = mask_annotator.annotate(scene=annotated_frame, detections=detections)
+        # box_annotator = sv.BoxAnnotator()
+        # annotated_frame = box_annotator.annotate(scene=img.copy(), detections=detections)
+        # label_annotator = sv.LabelAnnotator()
+        # annotated_frame = label_annotator.annotate(annotated_frame, detections=detections, labels=[ID_TO_OBJECTS[i] for i in object_ids])
+        color = sv.Color(117, 216, 230)
+        mask_annotator = sv.MaskAnnotator(color=color)
+        annotated_frame = mask_annotator.annotate(scene=img.copy(), detections=detections)
         cv2.imwrite(os.path.join(save_dir, f"annotated_frame_{frame_idx:05d}.jpg"), annotated_frame)
     
     """
@@ -219,5 +227,8 @@ def mask_video(input_video_path: str, prompt: str, output_video_path: str):
     create_video_from_images(save_dir, output_video_path)
     change_video(output_video_path)
 
+    shutil.rmtree(video_dir)
+    shutil.rmtree(save_dir)
+
 if __name__ == "__main__":
-    mask_video("./demo/data/gallery/02_cups.mp4", "red cup.", "./cups.mp4")
+    mask_video("./api/uploads/comedy.mp4", "person.", "./api/comedy.mp4")
