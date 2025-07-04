@@ -350,3 +350,5 @@ yarl==1.19.0
 ydata-profiling==4.6.0
 ypy-websocket==0.8.4
 zipp==3.21.0
+gdown
+google-cloud-storage

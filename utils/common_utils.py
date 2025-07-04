@@ -132,7 +132,7 @@ class CommonUtils:
             colored_mask = np.zeros_like(image)
             for uid in unique_ids:
                 colored_mask[mask == uid] = colors[uid]
-            alpha = 0.5  # 调整 alpha 值以改变透明度
+            alpha = 0.5  # Adjust alpha value to change transparency
             output_image = cv2.addWeighted(image, 1 - alpha, colored_mask, alpha, 0)
 
 

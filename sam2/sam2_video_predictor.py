@@ -344,6 +344,7 @@ class SAM2VideoPredictor(SAM2Base):
 
         if not isinstance(mask, torch.Tensor):
             mask = torch.tensor(mask, dtype=torch.bool)
+        # torch.reshape(mask, (-1,))
         assert mask.dim() == 2
         mask_H, mask_W = mask.shape
         mask_inputs_orig = mask[None, None]  # add batch and channel dimension

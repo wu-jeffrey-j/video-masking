@@ -12,6 +12,7 @@ from utils.track_utils import sample_points_from_masks
 from utils.video_utils import create_video_from_images
 from datetime import datetime
 import subprocess
+from utils.demo_utils import change_video, get_video_info
 
 """
 Step 1: Environment settings and model initialization
@@ -41,33 +42,64 @@ grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(model_id).
 def save_frames(input_video_path: str, video_dir: str):
     vidcap = cv2.VideoCapture(input_video_path)
     fps = vidcap.get(cv2.CAP_PROP_FPS)
-    max_frames = fps * 30
+    max_frames = fps * 10
     success, image = vidcap.read()
     count = 1
-    while success and count < max_frames:
+    while success and count <= max_frames:
         cv2.imwrite(os.path.join(video_dir, f"{count:05d}.jpg"), image)
         success, image = vidcap.read()
         count += 1
+    vidcap.release()
 
-def change_video(input: str):
-    temp_path = input + ".tmp.mp4"
-    cmd = ["ffmpeg", "-i", input,
-           "-c:v", "libx264",
-           "-profile:v", "baseline",
-           "-level", "3.0",
-           "-preset", "fast",
-           "-c:a", "aac",
-           "-movflags", "+faststart",
-           temp_path]
-    subprocess.run(cmd, check=True)
-    os.replace(temp_path, input)
+def save_frames2(input_video_path: str, video_dir: str, info):
+    stream = info["streams"][0]
+    fps_str = stream["r_frame_rate"]
+    fps = eval(fps_str) if fps_str != "0/0" else 30
+    width = stream["width"]
+    height = stream["height"]
+    max_frames = int(fps * 30)
+
+    ffmpeg_cmd = [
+        "ffmpeg",
+        "-i", input_video_path,
+        "-f", "image2pipe",
+        "-pix_fmt", "rgb24",
+        "-vcodec", "rawvideo",
+        "-"
+    ]
+
+    process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, bufsize=10**8)
+
+    frame_size = width * height * 3
+    count = 1
+
+    while count <= max_frames:
+        raw_frame = process.stdout.read(frame_size)
+        if not raw_frame:
+            break
+
+        # Convert bytes to numpy array
+        frame = np.frombuffer(raw_frame, dtype=np.uint8).reshape((height, width, 3))
+
+        # Save as JPEG
+        img = Image.fromarray(frame)
+        img.save(os.path.join(video_dir, f"{count:05d}.jpg"), "JPEG")
+
+        count += 1
+
+    process.stdout.close()
+    process.wait()
+
 
 def mask_video(input_video_path: str, prompt: str, output_video_path: str):
+    change_video(input_video_path, clip_frames=300)
     current_time = datetime.now().time()
     video_dir = f"api/input/{current_time}"
     os.makedirs(video_dir)
     
     save_frames(input_video_path, video_dir)
+    # info = get_video_info(input_video_path)
+    # save_frames2(input_video_path, video_dir, info)
 
     # scan all the JPEG frame names in this directory
     frame_names = [
@@ -75,10 +107,12 @@ def mask_video(input_video_path: str, prompt: str, output_video_path: str):
         if os.path.splitext(p)[-1] in [".jpg", ".jpeg", ".JPG", ".JPEG"]
     ]
     frame_names.sort(key=lambda p: int(os.path.splitext(p)[0]))
-    print("HERE")
     # init video predictor state
-    inference_state = video_predictor.init_state(video_path=video_dir)
-    print("HERE")
+    try:
+        inference_state = video_predictor.init_state(video_path=video_dir)
+    except RuntimeError as e:
+        print("CUDA ran out of memory. Check logs: sudo journatlctl -u video-masking -n 20")
+        return -1, "CUDA ran out of memory."
     ann_frame_idx = 0  # the frame index we interact with
     ann_obj_id = 1  # give a unique id to each object we interact with (it can be any integers)
 
@@ -89,8 +123,6 @@ def mask_video(input_video_path: str, prompt: str, output_video_path: str):
     # prompt grounding dino to get the box coordinates on specific frame
     img_path = os.path.join(video_dir, frame_names[ann_frame_idx])
     image = Image.open(img_path)
-
-    print("HERE")
 
     # run Grounding DINO on the image
     inputs = processor(images=image, text=prompt, return_tensors="pt").to(device)
@@ -104,9 +136,6 @@ def mask_video(input_video_path: str, prompt: str, output_video_path: str):
         text_threshold=0.3,
         target_sizes=[image.size[::-1]]
     )
-
-    print("HERE)")
-
     # prompt SAM image predictor to get the mask for the object
     image_predictor.set_image(np.array(image.convert("RGB")))
 
@@ -115,8 +144,8 @@ def mask_video(input_video_path: str, prompt: str, output_video_path: str):
     OBJECTS = results[0]["labels"]
 
     if input_boxes.size == 0:
-        print("Nothing detected")
-        return
+        print(f"Nothing detected for {prompt}")
+        return -1, "Nothing detected"
 
     # prompt SAM 2 image predictor to get the mask for the object
     masks, scores, logits = image_predictor.predict(
@@ -125,8 +154,6 @@ def mask_video(input_video_path: str, prompt: str, output_video_path: str):
         box=input_boxes,
         multimask_output=False,
     )
-
-    print("HERE")
 
     # convert the mask shape to (n, H, W)
     if masks.ndim == 3:
@@ -181,8 +208,6 @@ def mask_video(input_video_path: str, prompt: str, output_video_path: str):
     else:
         raise NotImplementedError("SAM 2 video predictor only support point/box/mask prompts")
 
-    print("HERE")
-
     """
     Step 4: Propagate the video predictor to get the segmentation results for each frame
     """
@@ -225,10 +250,13 @@ def mask_video(input_video_path: str, prompt: str, output_video_path: str):
     Step 6: Convert the annotated frames to video
     """
     create_video_from_images(save_dir, output_video_path)
-    change_video(output_video_path)
+    change_video(output_video_path, force=True)
 
     shutil.rmtree(video_dir)
     shutil.rmtree(save_dir)
 
+    print("Masking complete.")
+    return 0, "Masking complete"
+
 if __name__ == "__main__":
-    mask_video("./api/uploads/comedy.mp4", "person.", "./api/comedy.mp4")
+    mask_video("./api/uploads/dance4.mp4", "person.", "./api/dance3.mp4")

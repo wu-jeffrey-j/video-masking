@@ -145,3 +145,13 @@ dmypy.json
 outputs/
 
 .idea/
+
+/api/uploads
+/api/input
+/api/outputs
+/api/tracking_results
+/api/samples
+
+/data
+
+frontend/public

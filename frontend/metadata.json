@@ -1,0 +1,5 @@
+{
+  "name": "Orbifold AI - Chat with Your Files",
+  "description": "An application to chat with your documents, images, and videos using AI. Upload files and ask questions to get insights.",
+  "requestFramePermissions": []
+}

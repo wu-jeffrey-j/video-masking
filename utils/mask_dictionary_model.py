@@ -145,15 +145,15 @@ class ObjectInfo:
         return self.instance_id
 
     def update_box(self):
-        # 找到所有非零值的索引
+        # Find the indices of all non-zero values
         nonzero_indices = torch.nonzero(self.mask)
         
-        # 如果没有非零值，返回一个空的边界框
+        # If there are no non-zero values, return an empty bounding box
         if nonzero_indices.size(0) == 0:
             # print("nonzero_indices", nonzero_indices)
             return []
         
-        # 计算最小和最大索引
+        # Calculate the minimum and maximum indices
         y_min, x_min = torch.min(nonzero_indices, dim=0)[0]
         y_max, x_max = torch.max(nonzero_indices, dim=0)[0]
         
